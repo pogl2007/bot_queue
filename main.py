@@ -2,13 +2,13 @@
 Telegram bot for assigning topics to users.
 
 Instructions:
- - Set your bot token and admin Telegram ID as environment variables.
+ - Set your bot token and admin Telegram IDs as environment variables.
  - Run: python main.py
 
 Notes:
  - This implementation uses aiogram v3 style Dispatcher polling.
  - The bot stores state in data.json (simple JSON file).
- - For hosting on Railway, set BOT_TOKEN and ADMIN_ID environment variables.
+ - For hosting on Railway, set BOT_TOKEN and ADMIN_IDS environment variables.
 """
 
 import asyncio
@@ -25,20 +25,21 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Получаем токен и admin ID из переменных окружения
+# Получаем токен из переменной окружения
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Не установлен BOT_TOKEN")
 
-# Получаем admin ID из переменной окружения
-ADMIN_ID_STR = os.environ.get("ADMIN_ID")
-if ADMIN_ID_STR:
+# Получаем admin IDs из переменной окружения (разделенные запятой)
+ADMIN_IDS_STR = os.environ.get("ADMIN_IDS")
+if ADMIN_IDS_STR:
     try:
-        ADMIN_ID = int(ADMIN_ID_STR)
+        # Разбиваем строку по запятым и конвертируем в числа
+        ADMIN_IDS = [int(id_str.strip()) for id_str in ADMIN_IDS_STR.split(',')]
     except ValueError:
-        raise ValueError("ADMIN_ID должен быть числом")
+        raise ValueError("ADMIN_IDS должен быть списком чисел, разделенных запятыми, например: 123456789,987654321")
 else:
-    raise ValueError("Не установлен ADMIN_ID")
+    raise ValueError("Не установлен ADMIN_IDS")
 
 BASE_DIR = os.path.dirname(__file__)
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
@@ -48,19 +49,20 @@ DATA_FILE = os.path.join(BASE_DIR, "data.json")
 
 def load_data() -> Dict:
     if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
-        # Инициализируем с admin_id из переменной окружения
-        return {"admin_ids": [ADMIN_ID], "topics": [], "time_slots": []}
+        # Инициализируем с admin_ids из переменной окружения
+        return {"admin_ids": ADMIN_IDS, "topics": [], "time_slots": []}
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         try:
             data = json.load(f)
-            # Убедимся, что admin_ids всегда содержит ADMIN_ID из переменной окружения
-            if ADMIN_ID not in data.get("admin_ids", []):
-                data["admin_ids"] = data.get("admin_ids", [])
-                data["admin_ids"].append(ADMIN_ID)
+            # Убедимся, что admin_ids всегда содержит ADMIN_IDS из переменной окружения
+            for admin_id in ADMIN_IDS:
+                if admin_id not in data.get("admin_ids", []):
+                    data["admin_ids"] = data.get("admin_ids", [])
+                    data["admin_ids"].append(admin_id)
             return data
         except json.JSONDecodeError:
             logger.warning(f"Invalid JSON in {DATA_FILE}, returning default data")
-            return {"admin_ids": [ADMIN_ID], "topics": [], "time_slots": []}
+            return {"admin_ids": ADMIN_IDS, "topics": [], "time_slots": []}
 
 
 def save_data(data: Dict):
@@ -164,8 +166,7 @@ async def start_bot():
             if free:
                 await message.answer(f"✅ Вы уже заняли тему: {already['name']}", reply_markup=topic_actions_keyboard())
             else:
-                await message.answer("❌ Вы выбрали последнюю не занятую тему, перевыбрать тему нельзя(",
-                                     reply_markup=back_kb)
+                await message.answer("❌ Вы выбрали последнюю не занятую тему, перевыбрать тему нельзя(", reply_markup=back_kb)
             pending.pop(user_id, None)
             return
 
@@ -272,8 +273,7 @@ async def start_bot():
 
         user_name = None
         for topic in data["topics"]:
-            if topic.get("user") and (
-                    str(message.from_user.id) in topic["user"] or message.from_user.full_name in topic["user"]):
+            if topic.get("user") and (str(message.from_user.id) in topic["user"] or message.from_user.full_name in topic["user"]):
                 user_name = topic["user"]
                 break
 
@@ -363,9 +363,7 @@ async def start_bot():
         user_id = message.from_user.id
         data = load_data()
 
-        user_time_slot = next((slot for slot in data.get("time_slots", []) if
-                               slot["user"] == message.from_user.full_name or message.from_user.full_name in slot[
-                                   "user"] or slot["user"] == str(message.from_user.id)), None)
+        user_time_slot = next((slot for slot in data.get("time_slots", []) if slot["user"] == message.from_user.full_name or message.from_user.full_name in slot["user"] or slot["user"] == str(message.from_user.id)), None)
 
         if not user_time_slot:
             await message.answer("👤 Введите имя и фамилию:", reply_markup=types.ReplyKeyboardRemove())
@@ -376,8 +374,7 @@ async def start_bot():
             f"⏰ Текущее время выступления: {user_time_slot['slot']}. Выберите новое время выступления:",
             reply_markup=time_selection_keyboard(data.get("time_slots", []))
         )
-        pending[user_id] = {"state": "rechoosing_time", "old_slot": user_time_slot["slot"],
-                            "user": user_time_slot["user"]}
+        pending[user_id] = {"state": "rechoosing_time", "old_slot": user_time_slot["slot"], "user": user_time_slot["user"]}
 
     @dp.message(lambda m: m.from_user.id in pending and pending[m.from_user.id]["state"] == "rechoosing_time")
     async def confirm_rechoose_time(message: types.Message):
@@ -437,8 +434,7 @@ async def start_bot():
             f"⏰ Текущее время выступления: {user_time_slot['slot']}. Выберите новое время выступления:",
             reply_markup=time_selection_keyboard(data.get("time_slots", []))
         )
-        pending[user_id] = {"state": "rechoosing_time", "old_slot": user_time_slot["slot"],
-                            "user": user_time_slot["user"]}
+        pending[user_id] = {"state": "rechoosing_time", "old_slot": user_time_slot["slot"], "user": user_time_slot["user"]}
 
     # Сбросить тему
     @dp.message(lambda m: m.text == "❌ Сбросить тему")
@@ -446,18 +442,14 @@ async def start_bot():
         user_id = message.from_user.id
         data = load_data()
 
-        user_topic = next((t for t in data["topics"] if t.get("user") and (
-                    str(message.from_user.id) in t.get("user") or message.from_user.full_name in t.get("user"))), None)
+        user_topic = next((t for t in data["topics"] if t.get("user") and (str(message.from_user.id) in t.get("user") or message.from_user.full_name in t.get("user"))), None)
 
         if user_topic:
             user_topic["user"] = None
-            data["time_slots"] = [slot for slot in data.get("time_slots", []) if
-                                  slot["user"] != message.from_user.full_name and message.from_user.full_name not in
-                                  slot["user"] and slot["user"] != str(message.from_user.id)]
+            data["time_slots"] = [slot for slot in data.get("time_slots", []) if slot["user"] != message.from_user.full_name and message.from_user.full_name not in slot["user"] and slot["user"] != str(message.from_user.id)]
             save_data(data)
             is_admin = message.from_user.id in data.get("admin_ids", [])
-            await message.answer("✅ Ваша тема сброшена. Вы можете занять новую тему.",
-                                 reply_markup=main_keyboard(is_admin))
+            await message.answer("✅ Ваша тема сброшена. Вы можете занять новую тему.", reply_markup=main_keyboard(is_admin))
         else:
             await message.answer("👤 Введите имя и фамилию для сброса темы:", reply_markup=types.ReplyKeyboardRemove())
             pending[user_id] = {"state": "await_name_reset"}
@@ -475,8 +467,7 @@ async def start_bot():
             data["time_slots"] = [slot for slot in data.get("time_slots", []) if slot["user"] != name]
             save_data(data)
             is_admin = message.from_user.id in data.get("admin_ids", [])
-            await message.answer(f"✅ Все темы, занятые под именем '{name}', были сброшены.",
-                                 reply_markup=main_keyboard(is_admin))
+            await message.answer(f"✅ Все темы, занятые под именем '{name}', были сброшены.", reply_markup=main_keyboard(is_admin))
         else:
             is_admin = message.from_user.id in data.get("admin_ids", [])
             await message.answer(f"❌ Нет тем, занятых под именем '{name}'.", reply_markup=main_keyboard(is_admin))
@@ -511,7 +502,7 @@ async def start_bot():
         pending.pop(message.from_user.id, None)
         await message.answer(f"✅ Список тем обновлён вручную ({len(new_topics)} тем). Все временные слоты сброшены.",
                              reply_markup=main_keyboard(True))
-
+    
     @dp.message(lambda m: m.text == "🔙 Назад")
     async def back_to_main(message: types.Message):
         data = load_data()
